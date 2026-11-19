@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Absen Acara</title>
+<style>
+  :root{--bg:#f6f7fb;--card:#fff;--ink:#14213d;--muted:#6b7280;--brand:#4f46e5;--ok:#16a34a;--line:#e5e7eb}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1220;--card:#181c30;--ink:#eef0ff;--muted:#9aa0b8;--line:#2a2f4a}}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+  header{text-align:center;padding:20px 0 12px}
+  h1{font-size:1.4rem;margin:0 0 4px}
+  header p{margin:0;color:var(--muted);font-size:.95rem}
+  .search{position:sticky;top:0;background:var(--bg);padding:10px 0;z-index:5}
+  .search input{width:100%;padding:14px 16px;font-size:1.05rem;border:2px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);outline:none}
+  .search input:focus{border-color:var(--brand)}
+  .count{font-size:.85rem;color:var(--muted);margin:4px 2px 8px}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;padding:16px;font-size:1.05rem;border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);cursor:pointer}
+  .item:active{transform:scale(.99)}
+  .item.done{opacity:.55;cursor:default}
+  .tag{font-size:.8rem;color:var(--ok);font-weight:600}
+  .empty,.msg{text-align:center;color:var(--muted);padding:24px 8px}
+  .overlay{position:fixed;inset:0;background:rgba(10,12,25,.55);display:none;align-items:flex-end;justify-content:center;z-index:20}
+  .overlay.show{display:flex}
+  .sheet{background:var(--card);width:100%;max-width:560px;border-radius:22px 22px 0 0;padding:24px 20px 28px;text-align:center}
+  .sheet h2{margin:0 0 6px;font-size:1.25rem}
+  .sheet p{margin:0 0 18px;color:var(--muted)}
+  .btn{display:block;width:100%;padding:16px;font-size:1.05rem;font-weight:600;border:0;border-radius:14px;cursor:pointer}
+  .btn.primary{background:var(--brand);color:#fff}
+  .btn.ghost{background:transparent;color:var(--muted);margin-top:8px}
+  .btn:disabled{opacity:.6}
+  .success{position:fixed;inset:0;background:var(--ok);color:#fff;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;z-index:30}
+  .success.show{display:flex}
+  .success .tick{font-size:5rem;line-height:1}
+  .success h2{font-size:1.6rem;margin:12px 0 4px}
+  .success p{margin:0 0 24px;opacity:.9}
+  .success button{background:#fff;color:var(--ok);border:0;border-radius:12px;padding:12px 22px;font-weight:700;font-size:1rem;cursor:pointer}
+  footer{text-align:center;color:var(--muted);font-size:.8rem;margin-top:28px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="evName">Absen Acara</h1>
+    <p id="evSub"></p>
+  </header>
+  <div class="search"><input id="q" type="search" placeholder="Ketik nama Anda…" autocomplete="off"></div>
+  <div class="count" id="count"></div>
+  <div class="list" id="list"></div>
+  <div class="msg" id="msg">Memuat daftar peserta…</div>
+  <footer id="brand"></footer>
+</div>
+
+<div class="overlay" id="confirm">
+  <div class="sheet">
+    <h2 id="cName">—</h2>
+    <p>Benar ini nama Anda?</p>
+    <button class="btn primary" id="yes">Ya, absen sekarang</button>
+    <button class="btn ghost" id="no">Bukan, batal</button>
+  </div>
+</div>
+
+<div class="success" id="success">
+  <div class="tick">✓</div>
+  <h2 id="sName">Berhasil!</h2>
+  <p id="sText">Kehadiran Anda tercatat.</p>
+  <button id="sClose">Selesai</button>
+</div>
+
+<script src="config.js"></script>
+<script>
+const C = window.ABSEN_CONFIG;
+const $ = id => document.getElementById(id);
+let people = [], picked = null;
+
+document.title = "Absen — " + C.EVENT_NAME;
+$("evName").textContent = C.EVENT_NAME;
+$("evSub").textContent = C.EVENT_SUBTITLE;
+$("brand").textContent = "Absensi digital • " + C.BRAND;
+
+const norm = s => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+
+async function load(){
+  try{
+    const r = await fetch(C.APPS_SCRIPT_URL + "?action=list&t=" + Date.now());
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.error || "Gagal memuat");
+    people = d.participants;
+    $("msg").style.display = people.length ? "none" : "block";
+    if(!people.length) $("msg").textContent = "Daftar peserta masih kosong.";
+    render();
+  }catch(e){
+    $("msg").style.display = "block";
+    $("msg").textContent = "Gagal memuat daftar. Cek koneksi lalu muat ulang halaman.";
+  }
+}
+
+function render(){
+  const q = norm($("q").value.trim());
+  const rows = people.filter(p => !q || norm(p.name).includes(q));
+  const shown = rows.slice(0, 60);
+  $("count").textContent = people.length
+    ? `${people.filter(p=>p.present).length} dari ${people.length} peserta sudah hadir`
+    : "";
+  $("list").innerHTML = "";
+  shown.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "item" + (p.present ? " done" : "");
+    b.innerHTML = `<span></span>${p.present ? '<span class="tag">✓ Hadir</span>' : ""}`;
+    b.firstChild.textContent = p.name;
+    if(!p.present) b.onclick = () => ask(p);
+    $("list").appendChild(b);
+  });
+  if(q && !rows.length){
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "Nama tidak ditemukan. Coba ejaan lain atau hubungi panitia.";
+    $("list").appendChild(e);
+  } else if(rows.length > shown.length){
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "Ketik nama untuk mempersempit daftar…";
+    $("list").appendChild(e);
+  }
+}
+
+function ask(p){ picked = p; $("cName").textContent = p.name; $("confirm").classList.add("show"); }
+
+$("no").onclick = () => { $("confirm").classList.remove("show"); picked = null; };
+
+$("yes").onclick = async () => {
+  if(!picked) return;
+  const btn = $("yes"); btn.disabled = true; btn.textContent = "Mencatat…";
+  try{
+    const r = await fetch(C.APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: {"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({action:"checkin", row: picked.row, name: picked.name})
+    });
+    const d = await r.json();
+    $("confirm").classList.remove("show");
+    if(!d.ok){ alert(d.error || "Gagal mencatat, coba lagi."); await load(); return; }
+    $("sName").textContent = picked.name;
+    $("sText").textContent = d.already
+      ? `Anda sudah tercatat hadir pukul ${d.time}.`
+      : `Kehadiran tercatat pukul ${d.time}. Selamat mengikuti acara!`;
+    $("success").classList.add("show");
+    picked.present = true;
+    render();
+  }catch(e){
+    alert("Koneksi bermasalah. Coba lagi.");
+  }finally{
+    btn.disabled = false; btn.textContent = "Ya, absen sekarang";
+  }
+};
+
+$("sClose").onclick = () => { $("success").classList.remove("show"); $("q").value = ""; render(); load(); };
+$("q").addEventListener("input", render);
+load();
+</script>
+</body>
+</html>

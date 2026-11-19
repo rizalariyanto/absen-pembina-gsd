@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Panitia — Absen</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{--bg:#f6f7fb;--card:#fff;--ink:#14213d;--muted:#6b7280;--brand:#4f46e5;--ok:#16a34a;--line:#e5e7eb}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1220;--card:#181c30;--ink:#eef0ff;--muted:#9aa0b8;--line:#2a2f4a}}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:980px;margin:0 auto;padding:20px 16px 40px}
+  h1{margin:0 0 4px;font-size:1.5rem}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:16px}
+  @media (max-width:800px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px}
+  .qrbox{display:flex;justify-content:center;padding:14px;background:#fff;border-radius:14px}
+  .url{word-break:break-all;font-size:.8rem;color:var(--muted);text-align:center;margin:10px 0}
+  .btn{display:inline-block;padding:10px 14px;border:0;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;margin:2px}
+  .btn.alt{background:transparent;color:var(--brand);border:1px solid var(--brand)}
+  .stats{display:flex;align-items:baseline;gap:10px}
+  .big{font-size:3rem;font-weight:800;color:var(--ok)}
+  .bar{height:12px;border-radius:99px;background:var(--line);overflow:hidden;margin:10px 0 16px}
+  .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .4s}
+  table{width:100%;border-collapse:collapse;font-size:.95rem}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:.8rem}
+  .scroll{max-height:420px;overflow:auto}
+  .ok{color:var(--ok);font-weight:600}
+  .no{color:var(--muted)}
+  footer{text-align:center;color:var(--muted);font-size:.8rem;margin-top:24px}
+  @media print{.noprint{display:none!important}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="evName">Panel Panitia</h1>
+  <p class="sub">Tampilkan QR di layar/cetak. Peserta cukup scan lalu tap nama.</p>
+  <div class="grid">
+    <div class="card" style="text-align:center">
+      <div class="qrbox"><div id="qr"></div></div>
+      <div class="url" id="url"></div>
+      <div class="noprint">
+        <button class="btn" onclick="window.print()">Cetak QR</button>
+        <button class="btn alt" id="dl">Unduh PNG</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="stats"><span class="big" id="hadir">0</span><span>hadir dari <b id="total">0</b> peserta</span></div>
+      <div class="bar"><i id="fill"></i></div>
+      <div class="noprint" style="margin-bottom:10px">
+        <button class="btn alt" onclick="load()">Refresh</button>
+        <button class="btn alt" id="filterBtn">Tampilkan yang belum hadir</button>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Nama</th><th>Status</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <footer id="brand"></footer>
+</div>
+
+<script src="config.js"></script>
+<script>
+const C = window.ABSEN_CONFIG;
+const $ = id => document.getElementById(id);
+$("evName").textContent = "Panel Panitia — " + C.EVENT_NAME;
+$("brand").textContent = "Absensi digital • " + C.BRAND;
+
+const link = location.origin + "/";
+$("url").textContent = link;
+new QRCode($("qr"), {text: link, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.M});
+$("dl").onclick = () => {
+  const c = document.querySelector("#qr canvas");
+  const a = document.createElement("a");
+  a.download = "qr-absen.png";
+  a.href = c ? c.toDataURL("image/png") : document.querySelector("#qr img").src;
+  a.click();
+};
+
+let people = [], onlyAbsent = false;
+$("filterBtn").onclick = () => {
+  onlyAbsent = !onlyAbsent;
+  $("filterBtn").textContent = onlyAbsent ? "Tampilkan semua" : "Tampilkan yang belum hadir";
+  render();
+};
+
+function render(){
+  const present = people.filter(p => p.present).length;
+  $("hadir").textContent = present;
+  $("total").textContent = people.length;
+  $("fill").style.width = (people.length ? present / people.length * 100 : 0) + "%";
+  $("rows").innerHTML = "";
+  people.filter(p => !onlyAbsent || !p.present).forEach(p => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td></td><td class="${p.present ? "ok" : "no"}">${p.present ? "✓ Hadir" : "Belum"}</td>`;
+    tr.firstChild.textContent = p.name;
+    $("rows").appendChild(tr);
+  });
+}
+
+async function load(){
+  try{
+    const r = await fetch(C.APPS_SCRIPT_URL + "?action=list&t=" + Date.now());
+    const d = await r.json();
+    if(d.ok){ people = d.participants; render(); }
+  }catch(e){}
+}
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
